@@ -4,39 +4,25 @@ Hệ thống Hỗ trợ Chẩn đoán Lao Phổi - Deep Learning
 EfficientNetV2 (Classification) + YOLOv12 (Detection)
 """
 
+# ── PATCH: cv2 (opencv-python-headless) không cần libGL ──────────
+# Import os/subprocess trước mọi thứ để patch môi trường
+import os, sys, subprocess
+
+# Đảm bảo dùng đúng backend headless - không cần display
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "0")
+
+import cv2  # opencv-python-headless: không cần libGL
+import time, io, json, shutil, zipfile
 import streamlit as st
 import numpy as np
-import cv2
-import time, io, json, os, shutil, zipfile
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 import torch
 import warnings
 warnings.filterwarnings("ignore")
-import gdown, os
+# ────────────────────────────────────────────────────────────────
 
-# ── TỰ ĐỘNG TẢI MODEL TỪ GOOGLE DRIVE ──────────────────────────
-def download_models():
-    models = {
-        "best.pt": {
-            "id": "1s7FLbUFieECfgIDk6IWLZvK6-_9H-bdi",   # ← thay FILE_ID của bạn
-            "name": "EfficientNetV2 Classification"
-        },
-        "best_model.pth": {
-            "id": "1Ouivs5kX-RfhrR0psSVS5_2miu4F1ZYS",   # ← thay FILE_ID của bạn
-            "name": "YOLOv12 Detection"
-        },
-    }
-    for filename, info in models.items():
-        if not os.path.exists(filename):
-            print(f"Downloading {info['name']}...")
-            url = f"https://drive.google.com/uc?id={info['id']}"
-            gdown.download(url, filename, quiet=False, fuzzy=True)
-            print(f"  ✓ {filename} saved")
-        else:
-            print(f"  ✓ {filename} already exists")
-
-download_models()
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="TB-CAD | Chẩn Đoán Lao Phổi AI",
@@ -163,7 +149,6 @@ button[data-testid="baseButton-header"] { display: none !important; }
     border-radius: 8px !important;
     transition: all 0.2s ease !important;
     box-shadow: 0 0 14px rgba(52,211,153,0.28), inset 0 1px 0 rgba(255,255,255,0.08) !important;
-    margin-top: 0.5rem !important;
 }
 .stDownloadButton>button:hover {
     background: linear-gradient(135deg, #047857, #1e4976) !important;
@@ -252,11 +237,50 @@ FONT_CANDIDATES = [
 ]
 
 
+# ── TỰ ĐỘNG TẢI MODEL TỪ GOOGLE DRIVE ───────────────────────────────────────
+# Thay 2 FILE_ID bên dưới bằng ID thật từ Google Drive của bạn
+# Lấy FILE_ID: mở link Drive → id nằm giữa /d/ và /view
+#   https://drive.google.com/file/d/  <<FILE_ID_HERE>>  /view
+GDRIVE_MODELS = {
+    "best.pt": "1s7FLbUFieECfgIDk6IWLZvK6-_9H-bdi",        # EfficientNetV2 classification
+    "best_model.pth": "1Ouivs5kX-RfhrR0psSVS5_2miu4F1ZYS",  # YOLOv12 detection
+}
+
+@st.cache_resource(show_spinner=False)
+def _download_models_from_drive():
+    """
+    Tải model từ Google Drive nếu chưa có trên server.
+    Chỉ chạy 1 lần nhờ @st.cache_resource.
+    Trả về dict: {filename: True/False} cho biết file nào tải thành công.
+    """
+    import gdown
+    results = {}
+    for fname, fid in GDRIVE_MODELS.items():
+        if os.path.exists(fname):
+            results[fname] = True
+            continue
+        if fid.startswith("YOUR_"):
+            results[fname] = False   # chưa cấu hình FILE_ID
+            continue
+        try:
+            url = f"https://drive.google.com/uc?id={fid}"
+            out = gdown.download(url, fname, quiet=True, fuzzy=True)
+            results[fname] = out is not None and os.path.exists(fname)
+        except Exception as e:
+            print(f"[gdown] {fname}: {e}")
+            results[fname] = False
+    return results
+
+# Chạy tải model ngay khi app khởi động
+_drive_status = _download_models_from_drive()
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 for k, v in {
     "cls_model": None, "cls_type": None,
     "det_model": None, "det_type": None,
     "history": [], "results": {},
+    "prev_upload_keys": [],   # theo doi file da upload lan truoc
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -768,6 +792,28 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ── Drive download status ──
+_cls_ok  = _drive_status.get("best.pt", False)
+_det_ok  = _drive_status.get("best_model.pth", False)
+_cls_fid = GDRIVE_MODELS.get("best.pt", "")
+_det_fid = GDRIVE_MODELS.get("best_model.pth", "")
+
+if _cls_fid.startswith("YOUR_") or _det_fid.startswith("YOUR_"):
+    st.warning("⚙️  Chưa cấu hình FILE_ID Google Drive. Mở file app.py, tìm GDRIVE_MODELS và điền ID thật vào.", icon="⚠️")
+else:
+    _cls_icon  = "✅" if _cls_ok  else "❌"
+    _det_icon  = "✅" if _det_ok  else "❌"
+    st.markdown(
+        f"""<div style="background:rgba(34,211,238,0.06);border:1px solid rgba(34,211,238,0.18);
+        border-radius:8px;padding:0.5rem 1.2rem;margin-bottom:0.6rem;
+        font-family:Space Mono,monospace;font-size:0.7rem;color:#94a3b8;display:flex;gap:2rem;">
+        <span>🤖 <strong style="color:#f1f5f9;">Model từ Drive</strong></span>
+        <span>{_cls_icon} EfficientNetV2 (best.pt)</span>
+        <span>{_det_icon} YOLOv12 (best_model.pth)</span>
+        </div>""",
+        unsafe_allow_html=True
+    )
+
 # ── Metrics ──
 st.markdown("""
 <div class="metric-strip">
@@ -860,6 +906,12 @@ with tab_main:
         key="uploader",
     )
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Auto-reset: xoa ket qua cu khi danh sach file thay doi ──
+    current_keys = sorted([f.name + str(f.size) for f in uploaded_files]) if uploaded_files else []
+    if current_keys != st.session_state.prev_upload_keys:
+        st.session_state.results = {}
+        st.session_state.prev_upload_keys = current_keys
 
     if not uploaded_files:
         st.markdown("""
