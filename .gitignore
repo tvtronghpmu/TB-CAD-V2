@@ -1,0 +1,8 @@
+*.pt
+*.pth
+TB_CAD_Results/
+__pycache__/
+*.pyc
+.env
+*.zip
+venv/
