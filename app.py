@@ -141,6 +141,7 @@ button[data-testid="baseButton-header"] { display: none !important; }
     border-radius: 8px !important;
     transition: all 0.2s ease !important;
     box-shadow: 0 0 14px rgba(52,211,153,0.28), inset 0 1px 0 rgba(255,255,255,0.08) !important;
+    margin-top: 0.5rem !important;
 }
 .stDownloadButton>button:hover {
     background: linear-gradient(135deg, #047857, #1e4976) !important;
