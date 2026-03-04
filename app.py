@@ -4,15 +4,8 @@ Hệ thống Hỗ trợ Chẩn đoán Lao Phổi - Deep Learning
 EfficientNetV2 (Classification) + YOLOv12 (Detection)
 """
 
-# ── PATCH: cv2 (opencv-python-headless) không cần libGL ──────────
-# Import os/subprocess trước mọi thứ để patch môi trường
-import os, sys, subprocess
-
-# Đảm bảo dùng đúng backend headless - không cần display
-os.environ.setdefault("MPLBACKEND", "Agg")
-os.environ.setdefault("OPENCV_IO_ENABLE_OPENEXR", "0")
-
-import cv2  # opencv-python-headless: không cần libGL
+import os, sys
+import cv2
 import time, io, json, shutil, zipfile
 import streamlit as st
 import numpy as np
@@ -21,7 +14,6 @@ from pathlib import Path
 import torch
 import warnings
 warnings.filterwarnings("ignore")
-# ────────────────────────────────────────────────────────────────
 
 # ── PAGE CONFIG ──────────────────────────────────────────────────────────────
 st.set_page_config(
